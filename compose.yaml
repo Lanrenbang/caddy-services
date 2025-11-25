@@ -10,7 +10,7 @@
 
 services:
   caddy: 
-    image: caddy-services:latest
+    image: lanrenbang/caddy-services:latest
     container_name: caddy
     restart: unless-stopped
     environment:  # 时区设置，注意原版 caddy 镜像并不支持，需要映射宿主机 /etc/zoneinfo 和 /etc/localtime 实现
