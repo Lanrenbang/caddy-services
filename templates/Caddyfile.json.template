@@ -1,0 +1,320 @@
+{
+	"admin": {
+		"disabled": true,
+		"config": { "persist": false }
+	},
+
+	"logging": {
+		"sink": { "writer": { "output": "stdout" } },
+		"logs": {
+			"default": {
+				    "level": "WARN",
+				    "writer": { "output": "stdout" },
+				    "encoder": { "format": "console", "time_local": true },
+				    "sampling": { "interval": 10000, "first": 50, "thereafter": 20 }
+			},
+			"access": {
+				    "level": "INFO",
+				    "writer": { "output": "stdout" },
+				    "encoder": { "format": "console", "time_local": true },
+				    "exclude": [ "layer4.matchers.tls", "layer4.matchers.http", "layer4.handlers.proxy", "http.reverse_proxy", "http.handlers.reverse_proxy" ]
+			},
+			"proxy": {
+				    "level": "DEBUG",
+				    "writer": { "output": "stdout" },
+				    "encoder": { "format": "console", "time_local": true },
+				    "include": [ "layer4.matchers.tls", "layer4.matchers.http", "layer4.handlers.proxy", "http.reverse_proxy", "http.handlers.reverse_proxy" ]
+			}
+		}
+	},
+
+	"apps": {
+		"layer4": {
+			"servers": {
+				"tcp_${XRAY_OUTBOUND_PORT}": {
+					"listen": [":${XRAY_OUTBOUND_PORT}"],
+					"routes": [
+						{
+							"match": [{ "tls": {} }],
+							"handle": [{
+								"handler": "subroute",
+								"routes": [
+									{
+										    "match": [{ "tls": { "sni": ["${XRAY_OUTBOUND_ADDRESS_RAW}"] } }],
+										    "handle": [{
+											    "handler": "proxy",
+											    "proxy_protocol": "v1",
+											    "upstreams": [{ "dial": ["unix/${XRAY_INBOUND_LISTEN_RAW_REALITY_SINGLE}"] }]
+										    }]
+									},
+									{
+										    "match": [{ "tls": { "sni": ["${XRAY_OUTBOUND_ADDRESS_XHTTP}"] } }],
+										    "handle": [{
+											    "handler": "proxy",
+											    "proxy_protocol": "v1",
+											    "upstreams": [{ "dial": ["unix/${XRAY_INBOUND_LISTEN_RAW_REALITY_FALLBACK}"] }]
+										    }]
+									},
+									{
+										    "handle": [{
+											    "handler": "proxy",
+											    "proxy_protocol": "v2",
+											    "upstreams": [{ "dial": ["127.0.0.1:${CADDY_INTERNAL_TLS_PORT}"] }]
+										    }]
+									}
+								]
+							}]
+						},
+						{
+		          "match": [{ "http": [{}] }],
+		          "handle": [{
+			          "handler": "proxy",
+			          "upstreams": [{ "dial": ["127.0.0.1:80"] }]
+		          }]
+						}
+					]
+				},
+
+				"udp_${XRAY_OUTBOUND_PORT}": {
+					"listen": ["udp/:${XRAY_OUTBOUND_PORT}"],
+					"routes": [
+						{
+							"handle": [{
+								"handler": "proxy",
+								"proxy_protocol": "v2",
+								"upstreams": [{ "dial": ["udp/127.0.0.1:${CADDY_INTERNAL_TLS_PORT}"] }]
+							}]
+						}
+					]
+				}
+			}
+		},
+
+		"http": {
+			"servers": {
+				"http_80": {
+					"listen": [":80"],
+					"routes": [
+					  {
+					      "match": [{ "path": ["/healthcheck"] }],
+				        "handle": [{
+				          "handler": "static_response",
+				          "status_code": 200,
+				          "body": "OK"
+				        }],
+				        "terminal": true
+					  },
+					  {
+					      "handle": [{
+					        "handler": "static_response",
+					        "status_code": 308,
+					        "headers": { "Location": ["https://{http.request.host}{http.request.uri}"] }
+					      }]
+					  }
+					],
+					"automatic_https": { "disable_redirects": true },
+					"protocols": ["h1"]
+				},
+
+				"http_${CADDY_INTERNAL_TLS_PORT}": {
+					"listen": ["127.0.0.1:${CADDY_INTERNAL_TLS_PORT}"],
+					"listener_wrappers": [
+						{ "wrapper": "http_redirect" },
+						{ "wrapper": "proxy_protocol", "allow": [ "127.0.0.0/8", "::1/128" ] },
+						{ "wrapper": "tls" }
+					],
+					"routes": [
+					  {
+							"group": "group_http_${CADDY_INTERNAL_TLS_PORT}",
+							"match": [{
+							  "host": ["${XRAY_OUTBOUND_ADDRESS_CDN}"],
+							  "path": ["${XRAY_XHTTP_PATH}/*"]
+							}],
+							"handle": [{
+								"handler": "reverse_proxy",
+								"transport": { "protocol": "http", "proxy_protocol": "v1", "versions": [ "h2c", "2" ] },
+								"upstreams": [{ "dial": "unix/${XRAY_INBOUND_LISTEN_XHTTP_NONE_SECURITY}" }]
+							}]
+					  },
+					  {
+					    "group": "group_http_${CADDY_INTERNAL_TLS_PORT}",
+					    "match": [{ "host": ["${CADDY_API_BACKEND_DOMAIN}"] }],
+					    "handle": [{
+					      "handler": "subroute",
+					      "routes": [
+					        {
+								    "match": [{
+								      "method": ["OPTIONS"]
+								    }],
+								    "handle": [{
+								            "handler": "static_response",
+								            "status_code": 204
+								    }],
+								    "terminal": true
+					        },
+					        {
+										"match": [{
+											"not": [{
+											  "path": [
+											      "${CADDY_API_BACKEND_XRAY_PREFIX}${CADDY_API_BACKEND_XRAY_PUB_ENDPOINT}",
+											      "${CADDY_API_BACKEND_OCR_PREFIX}${CADDY_API_BACKEND_OCR_PUB_ENDPOINT}"
+											  ]
+											  
+											}]
+										}],
+										"handle": [{
+											      "handler": "authentication",
+											      "providers": {
+												      "jwt": {
+													      "sign_key": "{${CADDY_JWT_SIGNATURE_KEY_FILE}}",
+													      "sign_alg": "${CADDY_JWT_SIGNATURE_ALGORITHM}",
+													      "from_header": ["Authorization"],
+													      "issuer_whitelist": ["${CADDY_API_BACKEND_DOMAIN}"],
+													      "audience_whitelist": ["${CADDY_API_BACKEND_XRAY_PREFIX}", "${CADDY_API_BACKEND_OCR_PREFIX}"],
+													      "meta_claims": {"uuid": "uuid"}
+												      }
+											      }
+										}]
+					        },
+					        {
+										"handle": [{
+											      "handler": "subroute",
+											      "routes": [
+												      {
+												        "group": "group_api",
+													      "match": [{ "path": ["${CADDY_API_BACKEND_XRAY_PREFIX}/*"] }],
+													      "handle": [{
+														      "handler": "reverse_proxy",
+														      "upstreams": [{ "dial": "unix/${XRAY_API_BRIDGE_LISTEN}" }],
+														      "rewrite": {
+														        "strip_path_prefix": "${CADDY_API_BACKEND_XRAY_PREFIX}",
+														        "query": {
+														          "set": [{ "key": "uuid", "val": "{http.auth.user.uuid}"}]
+														        }
+														      }
+													      }]
+												      },
+												      {
+												        "group": "group_api",
+													      "match": [{ "path": ["${CADDY_API_BACKEND_OCR_PREFIX}/*"] }],
+													      "handle": [{
+														      "handler": "reverse_proxy",
+														      "upstreams": [{ "dial": "unix/${CADDY_API_BACKEND_OCR_UPSTREAM}" }],
+														      "rewrite": { "strip_path_prefix": "${CADDY_API_BACKEND_OCR_PREFIX}" }
+													      }]
+												      },
+												      {
+										            "group": "group_api",
+										            "handle": [{
+											                  "handler": "static_response",
+											                  "body": "404 Not Found",
+											                  "status_code": 404
+										            }]
+												      }
+											      ]
+										}],
+										"terminal": true
+					        }
+					      ]
+					    }]
+					  },
+						{
+							"group": "group_http_${CADDY_INTERNAL_TLS_PORT}",
+							"match": [{ "host": [ "${CADDY_DOMAIN_ROOT}", "*.${CADDY_DOMAIN_ROOT}" ] }],
+							"handle": [
+								{
+									"handler": "headers",
+									"response": {
+										"set": {
+											"Strict-Transport-Security": ["max-age=31536000; includeSubDomains; preload"],
+											"X-Content-Type-Options": ["nosniff"],
+											"X-Frame-Options": ["DENY"],
+											"Alt-Svc": ["h3=\":${XRAY_OUTBOUND_PORT}\"; ma=2592000"]
+										}
+									}
+								},
+								{ "handler": "encode", "encodings": {"zstd": {}, "gzip": {}}, "prefer": ["zstd", "gzip"], "minimum_length": 8192},
+								{ "handler": "file_server", "root": "/srv/web" }
+							]
+						},
+						{
+							"group": "group_http_${CADDY_INTERNAL_TLS_PORT}",
+							"handle": [{ "handler": "static_response", "body": "404 Not Found", "status_code": 404 }]
+						}
+					],
+
+					"trusted_proxies": { "source": "cloudflare", "interval": "12h", "timeout": "15s" },
+					"logs": {},
+					"protocols": [ "h1", "h2", "h3" ]
+				}
+			}
+		},
+
+		"tls": {
+			"certificates": {
+				"automate": [
+					"${CADDY_DOMAIN_ROOT}",
+					"*.${CADDY_DOMAIN_ROOT}",
+					"${XRAY_OUTBOUND_ADDRESS_RAW}",
+					"${XRAY_OUTBOUND_ADDRESS_XHTTP}",
+					"${XRAY_OUTBOUND_ADDRESS_CDN}"
+				]
+			},
+			"automation": {
+				"policies": [
+					{
+						"subjects": [ "${XRAY_OUTBOUND_ADDRESS_RAW}", "${XRAY_OUTBOUND_ADDRESS_XHTTP}" ],
+						"issuers": [{
+							"module": "acme",
+							"ca": "https://acme.zerossl.com/v2/DV90",
+							"email": "${CADDY_ISSUSRS_ACCOUNT_EMAIL}",
+							"external_account": { "key_id": "${CADDY_ZEROSSL_EAB_KID}", "mac_key": "${CADDY_ZEROSSL_EAB_HMAC_KEY}" },
+							"challenges": {
+								"http": { "disabled": true },
+								"tls-alpn": { "disabled": true },
+								"dns": {
+									"provider": { "name": "cloudflare", "api_token": "{${CADDY_DNS_PROVIDER_CLOUDFLARE_FILE}}" },
+									"resolvers": [ "1.1.1.1", "8.8.8.8" ]
+								}
+							},
+							"preferred_chains": {"smallest": false}
+						}],
+						"key_type": "rsa4096"
+					},
+					{
+						"subjects": [ "${CADDY_DOMAIN_ROOT}", "*.${CADDY_DOMAIN_ROOT}" ],
+						"issuers": [
+							{
+								"module": "acme",
+								"ca": "https://acme.zerossl.com/v2/DV90",
+								"email": "${CADDY_ISSUSRS_ACCOUNT_EMAIL}",
+								"external_account": { "key_id": "${CADDY_ZEROSSL_EAB_KID}", "mac_key": "${CADDY_ZEROSSL_EAB_HMAC_KEY}" },
+								"challenges": {
+									"http": { "disabled": true },
+									"tls-alpn": { "disabled": true },
+									"dns": {
+										"provider": { "name": "cloudflare", "api_token": "{${CADDY_DNS_PROVIDER_CLOUDFLARE_FILE}}" },
+										"resolvers": [ "1.1.1.1", "8.8.8.8" ]
+									}
+								}
+							},
+							{
+								"module": "acme",
+								"ca": "https://acme-v02.api.letsencrypt.org/directory",
+								"email": "${CADDY_ISSUSRS_ACCOUNT_EMAIL}",
+								"challenges": {
+									"http": { "disabled": true },
+									"tls-alpn": { "disabled": true },
+									"dns": {
+										"provider": { "name": "cloudflare", "api_token": "{${CADDY_DNS_PROVIDER_CLOUDFLARE_FILE}}" },
+										"resolvers": [ "1.1.1.1", "8.8.8.8" ]
+									}
+								}
+							}
+						]
+					}
+				]
+			}
+		}
+	}
+}

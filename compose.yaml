@@ -1,0 +1,81 @@
+# 容器主配置
+# - caddy 核心配置
+# - 引入的子服务单独配置在 compose.override.yaml 当中方便管理，这会在启动时自动加载；
+
+# 关于机密：
+# 顶层的 secrets 是声明本配置可以使用哪些机密，但具体服务里必须再使用 secrets 字段授权要使用的机密
+# - .env.warp 定义了变量替换能用到的全部机密，但根据服务的角色不同（服务端/客户端等），未必要全部在 docker/podman 事先创建好；
+# - 顶层 secrets 里声明的机密，“必须” 先创建好；
+# - 服务 secrets 可以比顶层少（多服务），但不能使用顶层未声明的机密
+
+services:
+  caddy: 
+    image: caddy-services:latest
+    container_name: caddy
+    restart: unless-stopped
+    environment:  # 时区设置，注意原版 caddy 镜像并不支持，需要映射宿主机 /etc/zoneinfo 和 /etc/localtime 实现
+      - TZ=America/Los_Angeles
+    cap_add:  # caddy 绑定低端口（<1024）时必须
+      - NET_BIND_SERVICE
+
+    # 注意：如果使用 docker，请屏蔽此项，并且建议创建自定义桥接网络，即使用顶层和服务的 networks 配置；
+    # 使用 podman 时 rootless 默认使用 pasta，虽然 pasta 也可自定义网络且更灵活（比如增加 MTU），但无法保留源地址；
+    # pasta 抓包选项 "pasta:--pcap,caddy.pcap"
+    network_mode: "pasta"
+
+    secrets:
+      # 域名与证书
+      - caddy_domain_root
+      - cloudflare_token
+      - caddy_issuses_account_email
+      - zerossl_eab_kid
+      - zerossl_eab_hmac_key
+      # 身份验证与 API
+      - jwt_signature_key
+      - caddy_api_backend_domain
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - shared_socket_path:/dev/shm  # 共享内存盘，套接字由子服务创建，caddy 反代
+      - ./templates:/usr/local/etc/templates:ro # 配置模板
+      - ./site:/srv  # 本地卷 - WEB 站点
+      - caddy_data:/data  # caddy 命名卷，自动申请的证书存储在这里
+      - caddy_config:/config
+
+      - ./.env.warp:/usr/local/etc/.env.warp:ro
+    # 这里的命令参数和上面的卷挂载构成环境变量替换，且不会传递到主进程
+    # 如果你不介意将替换环境变量传递给主进程，则使用 env_file 加载并注释掉 command 会更方便
+    # 多次调用 -e 时后加载的变量将覆盖前面的
+    command: ["-e", "/usr/local/etc/.env.xray"]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  shared_socket_path:  # 内存共享socket目录
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=1000,gid=1000  # 使用宿主UID/GID
+
+secrets:
+  # 域名与证书
+  caddy_domain_root:
+    external: true
+  cloudflare_token:
+    external: true
+  caddy_issuses_account_email:
+    external: true
+  zerossl_eab_kid:
+    external: true
+  zerossl_eab_hmac_key:
+    external: true
+  # 身份验证与 API
+  jwt_signature_key:
+    external: true
+  caddy_api_backend_domain:
+    external: true
+

@@ -1,0 +1,7 @@
+# env file
+.env
+.env.warp
+
+# Editor/IDE
+# .idea/
+# .vscode/

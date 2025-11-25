@@ -1,0 +1,26 @@
+# 每行一个模块，可选 @version
+
+# caddy 4 层反代模块，由于 Reality 并非标准 TLS，使用 xray Reality 协议时该模块必须；
+github.com/mholt/caddy-l4
+
+# cloudflare 域名 DNS 提供商，用于 ACME 挑战；如果你的域名是其他提供商，请进行更换；
+# https://caddyserver.com/docs/json/apps/tls/automation/policies/issuers/acme/challenges/dns/provider/
+github.com/caddy-dns/cloudflare
+
+# cloudflare CDN IP 范围，用于反代时信任 X-Forwarded-* 标头；如果使用其他 IP 源则替换；
+github.com/WeidiDeng/caddy-cloudflare-ip
+
+# caddy jwt 身份验证模块，如果你的 caddy 反代更多服务，除了前置 caddy 提供 https，还需要身份验证时使用，否则可移除；
+# 如果需要更强大的身份验证功能，可使用 https://github.com/greenpau/caddy-security
+github.com/ggicci/caddy-jwt
+
+# caddy 缓存模块，caddy 自己的静态服务器已经内置缓存策略，对于静态资源足够；
+# 如果你的反代上游具有持久/半持久化资源，比如变化较少的结构化数据，可使用缓存模块，减少上游服务压力
+# 本项目暂未启用缓存模块，仅供参考：
+# 轻量级缓存，不支持分布式和 ETag 等验证策略，配置简单易用
+# https://github.com/sillygod/cdp-cache
+# 更强大的缓存功能，支持分布式、多种策略多种缓存后端，配置复杂
+# 这二者是相同产品，cache-handler 为稳定版，souin 为开发版
+# https://github.com/caddyserver/cache-handler
+# https://github.com/darkweak/souin
+
