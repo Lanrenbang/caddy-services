@@ -1,0 +1,10 @@
+# Upstream dependency versions
+# Format: owner/repo sha tag check_type
+# Updated: 2025-11-28 08:29:33 UTC
+
+Lanrenbang/envwarp 7218ff0c994988f91c48e512bf1e4ca03e823e3d v0.2.2 release
+WeidiDeng/caddy-cloudflare-ip f53b62aa13cb7ad79c8b47aacc3f2f03989b67e5 - commit
+caddy-dns/cloudflare 2fc25ee62f40fe21b240f83ab2fb6e2be6dbb953 - commit
+caddyserver/caddy 551f793700fe1550845c824470b623fd1aa03d36 v2.10.2 release
+ggicci/caddy-jwt 6264e8c273680cbf24c99b53023b4aa86e1e9d17 - commit
+mholt/caddy-l4 66170bec9f4d6a015e31b04545afa1f90a873b3f - commit
