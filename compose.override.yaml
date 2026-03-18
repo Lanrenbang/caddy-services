@@ -1,7 +1,8 @@
 # 容器覆盖配置
 # - 全部子服务在这里定义，注意默认配置模板已使用 xray 反代设置，修改子服务应确保配置同步修改。
-# - XRAY_PROJECT_DIR | BRIDGE_PROJECT_DIR 定义在 .env 文件
+# - XRAY_PROJECT_DIR | BRIDGE_PROJECT_DIR | DDDDOCR_PROJECT_DIR 定义在 .env 文件
 # - 不使用 xray-api-bridge 项目时，将相关的 volumes、include 移除，改写 command 即可；
+# - 不使用 ddddocr-musl 项目时，将相关的 environment、include 移除即可；
 
 services:
   caddy: 
@@ -12,17 +13,27 @@ services:
       - xray_servername_cdn
       - xray_xhttp_path
 
+    environment:  # 从当前 .env 提取，用于 caddy 配置中变量替换，也可选择将其映射到容器内使用下面 command 加载
+      - DDDDOCR_LISTEN_ADDRESS=${DDDDOCR_LISTEN_ADDRESS}
+
     # 务必注意：挂载子服务 .env.warp 变量替换文件时不能按原名称映射，不然会覆盖 caddy 配置
     volumes:
       - ${XRAY_PROJECT_DIR:?xray required}/.env.warp:/usr/local/etc/.env.xray:ro
       - ${BRIDGE_PROJECT_DIR:?xray api bridge required}/.env.warp:/usr/local/etc/.env.bridge:ro
     # 改写启动参数，实现多配置加载，后加载的变量将覆盖前面的
-    command: ["-e", "/usr/local/etc/.env.bridge", "-e", "/usr/local/etc/.env.xray", "-e", "/usr/local/etc/.env.warp"]
+    command: 
+      - "-e"
+      - "/usr/local/etc/.env.bridge"
+      - "-e"
+      - "/usr/local/etc/.env.xray"
+      - "-e"
+      - "/usr/local/etc/.env.warp"
 
-# 子服务加载
+# 子服务加载（podman 不支持长语法）
 include:
   - ${XRAY_PROJECT_DIR:?xray required}/compose.yaml
   - ${BRIDGE_PROJECT_DIR:?xray api bridge required}/compose.yaml
+  - ${DDDDOCR_PROJECT_DIR:?ddddocr required}/compose.yaml
 
 secrets:
   # 子服务 - xray
