@@ -156,7 +156,9 @@
 										"match": [{
 											"not": [{
 											  "path": [
-											      "${CADDY_API_BACKEND_XRAY_PREFIX}${CADDY_API_BACKEND_XRAY_PUB_ENDPOINT}",
+											      "${CADDY_API_BACKEND_REVERSE_PREFIX}/*",
+											      "${CADDY_API_BACKEND_XRAY_PREFIX}${CADDY_API_BACKEND_XRAY_PUB_ENDPOINT1}",
+											      "${CADDY_API_BACKEND_XRAY_PREFIX}${CADDY_API_BACKEND_XRAY_PUB_ENDPOINT2}",
 											      "${CADDY_API_BACKEND_OCR_PREFIX}${CADDY_API_BACKEND_OCR_PUB_ENDPOINT}"
 											  ]
 											  
@@ -180,12 +182,21 @@
 										"handle": [{
 											      "handler": "subroute",
 											      "routes": [
+											        {
+												        "group": "group_api",
+													      "match": [{ "path": ["${CADDY_API_BACKEND_REVERSE_PREFIX}/*"] }],
+													      "handle": [{
+														      "handler": "reverse_proxy",
+														      "upstreams": [{ "dial": ":${CADDY_API_BACKEND_REVERSE_UPSTREAM}" }],
+														      "rewrite": { "strip_path_prefix": "${CADDY_API_BACKEND_REVERSE_PREFIX}" }
+													      }]
+												      },
 												      {
 												        "group": "group_api",
 													      "match": [{ "path": ["${CADDY_API_BACKEND_XRAY_PREFIX}/*"] }],
 													      "handle": [{
 														      "handler": "reverse_proxy",
-														      "upstreams": [{ "dial": "unix/${XRAY_API_BRIDGE_LISTEN}" }],
+														      "upstreams": [{ "dial": "unix/${CADDY_API_BACKEND_XRAY_UPSTREAM}" }],
 														      "rewrite": {
 														        "strip_path_prefix": "${CADDY_API_BACKEND_XRAY_PREFIX}",
 														        "query": {
